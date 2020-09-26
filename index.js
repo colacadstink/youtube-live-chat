@@ -18,6 +18,27 @@ class YouTube extends EventEmitter {
     this.id = channelId
     this.key = apiKey
     this.getLive()
+  
+    let lastRead = 0, time = 0
+    this.on('json', data => {
+      for (const item of data.items) {
+        time = new Date(item.snippet.publishedAt).getTime()
+        if (lastRead < time) {
+          lastRead = time
+          /**
+           * Emitted whenever a new message is received.
+           * See {@link https://developers.google.com/youtube/v3/live/docs/liveChatMessages#resource|docs}
+           * @event YouTube#message
+           * @type {object}
+           */
+          if (!this.ignoreOld) {
+            // Only emit if we're not ignoring things
+            this.emit('message', item)
+          }
+        }
+      }
+      this.ignoreOld = false // Always listen after the first run no matter what
+    })
   }
   
   getLive() {
@@ -64,7 +85,10 @@ class YouTube extends EventEmitter {
    * @return {object}
    */
   getChat() {
-    if (!this.chatId) return this.emit('error', 'Chat id is invalid.')
+    if (!this.chatId) {
+      this.emit('error', 'Chat id is invalid.')
+      return false
+    }
     const url = 'https://www.googleapis.com/youtube/v3/liveChat/messages'+
         `?liveChatId=${this.chatId}`+
         '&part=id,snippet,authorDetails'+
@@ -73,6 +97,7 @@ class YouTube extends EventEmitter {
     this.request(url, data => {
       this.emit('json', data)
     })
+    return true
   }
 
   request(url, callback) {
@@ -99,29 +124,11 @@ class YouTube extends EventEmitter {
    * @fires YouTube#message
    */
   listen(delay, ignoreOld) {
-    let lastRead = 0, time = 0
-    this.active = true
-    this.getChat()
-    this.interval = setInterval(() => this.getChat(), delay)
-    this.on('json', data => {
-      for (const item of data.items) {
-        time = new Date(item.snippet.publishedAt).getTime()
-        if (lastRead < time) {
-          lastRead = time
-          /**
-           * Emitted whenever a new message is received.
-           * See {@link https://developers.google.com/youtube/v3/live/docs/liveChatMessages#resource|docs}
-           * @event YouTube#message
-           * @type {object}
-           */
-          if (!ignoreOld) {
-            // Only emit if we're not ignoring things
-            this.emit('message', item)
-          }
-        }
-      }
-      ignoreOld = false // Always listen after the first run no matter what
-    })
+    this.ignoreOld = ignoreOld
+    if (this.getChat()) {
+      this.active = true
+      this.interval = setInterval(() => this.getChat(), delay)
+    }
   }
   
   /**
