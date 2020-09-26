@@ -48,34 +48,44 @@ class YouTube extends EventEmitter {
         `&channelId=${this.id}`+
         '&type=video'+
         `&key=${this.key}`
-    this.request(url, data => {
-      if (!data.items[0]) {
-        this.emit('error', YouTube.CANNOT_FIND_LIVE)
-      } else if (data.items.length > 1) {
-        this.emit('multilive', data.items, (item) => {
-          this.liveId = item.id.videoId
-          this.getChatId()
-        })
-      } else {
-        this.liveId = data.items[0].id.videoId
-        this.getChatId()
-      }
+    
+    return new Promise((resolve) => {
+      this.request(url, data => {
+        if (!data.items[0]) {
+          this.emit('error', YouTube.CANNOT_FIND_LIVE)
+          resolve()
+        } else if (data.items.length > 1) {
+          this.emit('multilive', data.items, (item) => {
+            this.liveId = item.id.videoId
+            resolve(this.getChatId())
+          })
+        } else {
+          this.liveId = data.items[0].id.videoId
+          resolve(this.getChatId())
+        }
+      })
     })
   }
   
   getChatId() {
-    if (!this.liveId) return this.emit('error', 'Live id is invalid.')
-    const url = 'https://www.googleapis.com/youtube/v3/videos'+
-        '?part=liveStreamingDetails'+
-        `&id=${this.liveId}`+
-        `&key=${this.key}`
-    this.request(url, data => {
-      if (!data.items.length)
-        this.emit('error', 'Can not find chat.')
-      else {
-        this.chatId = data.items[0].liveStreamingDetails.activeLiveChatId
-        this.emit('ready')
+    return new Promise((resolve) => {
+      if (!this.liveId) {
+        this.emit('error', 'Live id is invalid.')
+        resolve()
       }
+      const url = 'https://www.googleapis.com/youtube/v3/videos'+
+          '?part=liveStreamingDetails'+
+          `&id=${this.liveId}`+
+          `&key=${this.key}`
+      this.request(url, data => {
+        if (!data.items.length)
+          this.emit('error', 'Can not find chat.')
+        else {
+          this.chatId = data.items[0].liveStreamingDetails.activeLiveChatId
+          this.emit('ready')
+        }
+        resolve()
+      })
     })
   }
   
@@ -85,19 +95,21 @@ class YouTube extends EventEmitter {
    * @return {object}
    */
   getChat() {
-    if (!this.chatId) {
-      this.emit('error', 'Chat id is invalid.')
-      return false
-    }
-    const url = 'https://www.googleapis.com/youtube/v3/liveChat/messages'+
-        `?liveChatId=${this.chatId}`+
-        '&part=id,snippet,authorDetails'+
-        '&maxResults=2000'+
-        `&key=${this.key}`
-    this.request(url, data => {
-      this.emit('json', data)
+    return new Promise((resolve) => {
+      if (!this.chatId) {
+        this.emit('error', 'Chat id is invalid.')
+        resolve(false)
+      }
+      const url = 'https://www.googleapis.com/youtube/v3/liveChat/messages'+
+          `?liveChatId=${this.chatId}`+
+          '&part=id,snippet,authorDetails'+
+          '&maxResults=2000'+
+          `&key=${this.key}`
+      this.request(url, data => {
+        this.emit('json', data)
+        resolve(true)
+      })
     })
-    return true
   }
 
   request(url, callback) {
@@ -125,10 +137,12 @@ class YouTube extends EventEmitter {
    */
   listen(delay, ignoreOld) {
     this.ignoreOld = ignoreOld
-    if (this.getChat()) {
-      this.active = true
-      this.interval = setInterval(() => this.getChat(), delay)
-    }
+    this.getChat().then((isHappy) => {
+      if (isHappy) {
+        this.active = true
+        this.interval = setInterval(() => this.getChat(), delay)
+      }
+    })
   }
   
   /**
